@@ -1,12 +1,16 @@
-use crate::state::VaultState;
+use crate::{
+    constants::{APPLICATION_SEED, MAX_GITHUB_USERNAME_LENGTH, STATE_SEED, VAULT_SEED},
+    error::ErrorCode,
+    external_programs::registration::{
+        cpi::{accounts::Initialize, initialize},
+        program::Q3PreReqsRs,
+    },
+    state::VaultState,
+};
 use anchor_lang::{
     prelude::*,
     system_program::{transfer, Transfer},
 };
-
-declare_program!(registration);
-
-use registration::cpi::{accounts::Initialize, initialize};
 
 #[derive(Accounts)]
 pub struct Withdraw<'info> {
@@ -15,13 +19,14 @@ pub struct Withdraw<'info> {
 
     #[account(
     mut,
-    seeds = [b"vault", vault_state.key().as_ref()],
+    seeds = [VAULT_SEED, vault_state.key().as_ref()],
     bump = vault_state.vault_bump,
   )]
     pub vault: SystemAccount<'info>,
 
     #[account(
-    seeds = [b"state", user.key().as_ref()],
+    mut,
+    seeds = [STATE_SEED, user.key().as_ref()],
     bump = vault_state.state_bump
   )]
     pub vault_state: Account<'info, VaultState>,
@@ -29,26 +34,43 @@ pub struct Withdraw<'info> {
     /// CHECK: application account will be initialized by the cpi call to the application program
     #[account(
     mut,
-    seeds = [b"prereqs", user.key().as_ref()],
+    seeds = [APPLICATION_SEED, user.key().as_ref()],
     seeds::program = application_program.key(),
     bump
     )]
     pub application_account: UncheckedAccount<'info>,
 
-    pub application_program: Program<'info, registration::program::Q3PreReqsRs>,
+    pub application_program: Program<'info, Q3PreReqsRs>,
 
     system_program: Program<'info, System>,
 }
 
 impl<'info> Withdraw<'info> {
     pub fn withdraw(&mut self, amount: u64, github: String) -> Result<()> {
+        require!(amount > 0, ErrorCode::InvalidAmount);
+        require!(
+            amount <= self.vault.lamports(),
+            ErrorCode::InsufficientVaultFunds
+        );
+        require!(!github.is_empty(), ErrorCode::InvalidGithubUsername);
+        require!(
+            github.len() <= MAX_GITHUB_USERNAME_LENGTH,
+            ErrorCode::GithubUsernameTooLong
+        );
+        require!(
+            github
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '-'),
+            ErrorCode::InvalidGithubUsername
+        );
+
         let cpi_accounts = Transfer {
             from: self.vault.to_account_info(),
             to: self.user.to_account_info(),
         };
 
         let seeds = &[
-            b"vault",
+            VAULT_SEED,
             self.vault_state.to_account_info().key.as_ref(),
             &[self.vault_state.vault_bump],
         ];
@@ -59,24 +81,18 @@ impl<'info> Withdraw<'info> {
 
         transfer(cpi_ctx, amount)?;
 
-        // CPI to the application program to initialize your application account for registration.
-        // All the neccessary function and account struct have been imported. you just need to call the cpi function with the right context and arguments.
-        // make sure you pass in your github id
-
-
         let registration_accounts = Initialize {
             user: self.user.to_account_info(),
             account: self.application_account.to_account_info(),
             system_program: self.system_program.to_account_info(),
         };
 
-        let registration_ctx = CpiContext::new(
-            self.application_program.key(),
-            registration_accounts,
-        );
+        let registration_ctx =
+            CpiContext::new(self.application_program.key(), registration_accounts);
 
         initialize(registration_ctx, github)?;
 
+        self.vault_state.has_withdrawn = true;
 
         Ok(())
     }

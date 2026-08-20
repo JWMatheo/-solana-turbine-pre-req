@@ -22,7 +22,8 @@
       "accounts": [
         {
           "name": "user",
-          "writable": true
+          "writable": true,
+          "signer": true
         },
         {
           "name": "account",

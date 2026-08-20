@@ -1,4 +1,8 @@
-use crate::state::VaultState;
+use crate::{
+    constants::{STATE_SEED, VAULT_SEED},
+    error::ErrorCode,
+    state::VaultState,
+};
 use anchor_lang::{
     prelude::*,
     system_program::{transfer, Transfer},
@@ -11,13 +15,13 @@ pub struct Deposit<'info> {
 
     #[account(
     mut,
-    seeds = [b"vault", vault_state.key().as_ref()],
+    seeds = [VAULT_SEED, vault_state.key().as_ref()],
     bump = vault_state.vault_bump,
   )]
     pub vault: SystemAccount<'info>,
 
     #[account(
-    seeds = [b"state", user.key().as_ref()],
+    seeds = [STATE_SEED, user.key().as_ref()],
     bump = vault_state.state_bump
   )]
     pub vault_state: Account<'info, VaultState>,
@@ -27,6 +31,8 @@ pub struct Deposit<'info> {
 
 impl<'info> Deposit<'info> {
     pub fn deposit(&mut self, amount: u64) -> Result<()> {
+        require!(amount > 0, ErrorCode::InvalidAmount);
+
         let cpi_accounts = Transfer {
             from: self.user.to_account_info(),
             to: self.vault.to_account_info(),

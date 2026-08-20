@@ -1,5 +1,6 @@
 pub mod constants;
 pub mod error;
+pub mod external_programs;
 pub mod instructions;
 pub mod state;
 
@@ -17,7 +18,7 @@ pub mod pre_req_vault {
 
     // Initialize
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        ctx.accounts.intialize(&ctx.bumps)
+        ctx.accounts.initialize(&ctx.bumps)
     }
 
     // deposit funds
@@ -26,11 +27,7 @@ pub mod pre_req_vault {
     }
 
     // withdraw funds
-    pub fn withdraw(
-        ctx: Context<Withdraw>,
-        amount: u64,
-        github: String,
-    ) -> Result<()> {
+    pub fn withdraw(ctx: Context<Withdraw>, amount: u64, github: String) -> Result<()> {
         ctx.accounts.withdraw(amount, github)
     }
 

@@ -1,10 +1,5 @@
-use anchor_lang::prelude::*;
+pub const STATE_SEED: &[u8] = b"state";
+pub const VAULT_SEED: &[u8] = b"vault";
+pub const APPLICATION_SEED: &[u8] = b"prereqs";
 
-#[constant]
-pub const COUNTER_SEED: &[u8] = b"counter";
-
-#[constant]
-pub const HELLO_WORLD_LAMPORTS: u64 = 1;
-
-#[constant]
-pub const MAX_COUNT: u64 = 10;
+pub const MAX_GITHUB_USERNAME_LENGTH: usize = 39;

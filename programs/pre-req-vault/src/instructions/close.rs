@@ -1,4 +1,12 @@
-use crate::state::VaultState;
+use crate::{
+    constants::{APPLICATION_SEED, STATE_SEED, VAULT_SEED},
+    error::ErrorCode,
+    external_programs::registration::{
+        cpi::{accounts::Close as RegistrationCloseAccounts, close as close_registration_account},
+        program::Q3PreReqsRs,
+    },
+    state::VaultState,
+};
 use anchor_lang::{
     prelude::*,
     system_program::{transfer, Transfer},
@@ -11,31 +19,57 @@ pub struct Close<'info> {
 
     #[account(
     mut,
-    seeds = [b"vault", vault_state.key().as_ref()],
+    seeds = [VAULT_SEED, vault_state.key().as_ref()],
     bump = vault_state.vault_bump,
   )]
     pub vault: SystemAccount<'info>,
 
     #[account(
     mut,
-    seeds = [b"state", user.key().as_ref()],
+    seeds = [STATE_SEED, user.key().as_ref()],
     bump = vault_state.state_bump,
     close = user,
   )]
     pub vault_state: Account<'info, VaultState>,
+
+    #[account(
+        mut,
+        seeds = [APPLICATION_SEED, user.key().as_ref()],
+        seeds::program = application_program.key(),
+        bump
+    )]
+    pub application_account: UncheckedAccount<'info>,
+
+    pub application_program: Program<'info, Q3PreReqsRs>,
 
     system_program: Program<'info, System>,
 }
 
 impl<'info> Close<'info> {
     pub fn close(&mut self) -> Result<()> {
+        require!(
+            self.vault_state.has_withdrawn,
+            ErrorCode::WithdrawalRequiredBeforeClose
+        );
+
+        let registration_accounts = RegistrationCloseAccounts {
+            user: self.user.to_account_info(),
+            account: self.application_account.to_account_info(),
+            system_program: self.system_program.to_account_info(),
+        };
+
+        let registration_ctx =
+            CpiContext::new(self.application_program.key(), registration_accounts);
+
+        close_registration_account(registration_ctx)?;
+
         let cpi_accounts = Transfer {
             from: self.vault.to_account_info(),
             to: self.user.to_account_info(),
         };
 
         let seeds = &[
-            b"vault",
+            VAULT_SEED,
             self.vault_state.to_account_info().key.as_ref(),
             &[self.vault_state.vault_bump],
         ];
