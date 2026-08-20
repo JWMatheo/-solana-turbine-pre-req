@@ -11,7 +11,8 @@ import NodeWallet from "@anchor-lang/core/dist/cjs/nodewallet";
 import { BN } from "bn.js";
 import { expect } from "chai";
 
-const commitement: Commitment = "confirmed";
+const COMMITMENT: Commitment = "confirmed";
+const GITHUB_USERNAME: string = "jwmatheo";
 
 describe("pre-req-vault", () => {
   const confirmTx = async (signature: string) => {
@@ -24,7 +25,7 @@ describe("pre-req-vault", () => {
         signature,
         ...latestBlockhash,
       },
-      commitement,
+      COMMITMENT,
     );
   };
 
@@ -88,7 +89,7 @@ describe("pre-req-vault", () => {
       })
       .rpc();
 
-    confirmTx(tx);
+    await confirmTx(tx);
 
     const finalBalanceVault = await provider.connection.getBalance(vaultPda);
     const finalBalanceUser = await provider.connection.getBalance(user);
@@ -113,7 +114,7 @@ describe("pre-req-vault", () => {
     )[0];
 
     const tx = await program.methods
-      .withdraw(new BN(withdrawAmount))
+      .withdraw(new BN(withdrawAmount), GITHUB_USERNAME)
       .accountsStrict({
         user: user,
         vaultState: vaultStatePda,
@@ -124,7 +125,7 @@ describe("pre-req-vault", () => {
       })
       .rpc();
 
-    confirmTx(tx);
+   await confirmTx(tx);
 
     const finalBalanceVault = await provider.connection.getBalance(vaultPda);
     const finalBalanceUser = await provider.connection.getBalance(user);
@@ -146,7 +147,7 @@ describe("pre-req-vault", () => {
       })
       .rpc();
 
-    confirmTx(tx);
+   await confirmTx(tx);
 
     expect(await provider.connection.getBalance(vaultPda)).to.equal(0);
 

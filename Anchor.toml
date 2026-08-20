@@ -6,8 +6,8 @@ skip_local_validator = true
 resolution = true
 skip-lint = false
 
-[programs.localnet]
-pre_req_vault = "DBoobRVqT7PaAhq8obqo95723CHyWvcCLRUKvQ5wYWE4"
+[programs.devnet]
+pre_req_vault = "5BrvmKW8LxW5VJ5gfJtrjPp6rYT8weM9uGwjNNH3B1ja"
 
 [provider]
 cluster = "devnet"
