@@ -58,15 +58,15 @@ The improvements below belong to the stable `pre-req-vault` program. The
 conditional-update variant is kept separately so it does not change the
 working implementation.
 
-| Improvement                   | Implementation                                                                                                                                                    | Value                                                                       |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Complete PDA cleanup          | `close` performs a CPI to the Registration Program to close the external `ApplicationAccount`, forwarding the user as a writable signer, then drains the vault and closes `VaultState`. | All accounts involved in the vault lifecycle are cleaned up.                |
-| Multiple withdrawals          | Later withdrawals transfer SOL without attempting the unsupported Registration `update`.                                                                          | A user can withdraw multiple times without depending on a non-mutating CPI. |
-| Input validation              | Amounts must be positive, withdrawals cannot exceed the vault balance, and GitHub usernames must be valid ASCII values within the configured limit.               | Invalid requests fail before the intended state transition completes.       |
-| Real constants                | PDA seed bytes and the maximum GitHub username length are centralized in [`constants.rs`](programs/pre-req-vault/src/constants.rs).                               | PDA derivation and validation rules stay consistent.                        |
-| Lifecycle events              | `VaultInitialized`, `Deposited`, `Withdrawn`, and `VaultClosed` are emitted.                                                                                      | Clients and indexers can observe the vault lifecycle.                       |
-| Reliable TypeScript tests     | Transaction confirmation is awaited before balances, logs, or account data are asserted.                                                                          | Tests do not race RPC or validator state.                                   |
-| External-program verification | The Registration IDL used for code generation records that `update.account` is not writable.                         | The CPI account mutability assumptions are explicit and match the deployed external program. |
+| Improvement                   | Implementation                                                                                                                                                                          | Value                                                                                        |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Complete PDA cleanup          | `close` performs a CPI to the Registration Program to close the external `ApplicationAccount`, forwarding the user as a writable signer, then drains the vault and closes `VaultState`. | All accounts involved in the vault lifecycle are cleaned up.                                 |
+| Multiple withdrawals          | Later withdrawals transfer SOL without attempting the unsupported Registration `update`.                                                                                                | A user can withdraw multiple times without depending on a non-mutating CPI.                  |
+| Input validation              | Amounts must be positive, withdrawals cannot exceed the vault balance, and GitHub usernames must be valid ASCII values within the configured limit.                                     | Invalid requests fail before the intended state transition completes.                        |
+| Real constants                | PDA seed bytes and the maximum GitHub username length are centralized in [`constants.rs`](programs/pre-req-vault/src/constants.rs).                                                     | PDA derivation and validation rules stay consistent.                                         |
+| Lifecycle events              | `VaultInitialized`, `Deposited`, `Withdrawn`, and `VaultClosed` are emitted.                                                                                                            | Clients and indexers can observe the vault lifecycle.                                        |
+| Reliable TypeScript tests     | Transaction confirmation is awaited before balances, logs, or account data are asserted.                                                                                                | Tests do not race RPC or validator state.                                                    |
+| External-program verification | The Registration IDL used for code generation records that `update.account` is not writable.                                                                                            | The CPI account mutability assumptions are explicit and match the deployed external program. |
 
 ## Architecture
 
@@ -135,6 +135,14 @@ valid writable target for an update. The Devnet test showed that the CPI logs
 `Instruction: Update`, but the stored value remained the old username. The
 stable program intentionally avoids this unsupported branch.
 
+The variant is also compiled against
+[`idls/registration_withdraw_update.json`](idls/registration_withdraw_update.json),
+a diagnostic copy that marks `update.account` as writable. This changes the
+CPI metadata generated for the variant only; it cannot change the already
+deployed Registration Program. The variant uses
+`declare_program!(registration_withdraw_update)`, so Anchor resolves this
+underscore-named IDL directly.
+
 ## External Registration IDL
 
 [`idls/registration.json`](idls/registration.json) is the formatted IDL used
@@ -149,6 +157,10 @@ Registration Program definition on the relevant fields:
 - `close` can close the external application account, and its `user` account
   must be both writable and a signer. Without `signer: true` in this local IDL,
   the CPI reaches the Registration Program but fails with `AccountNotSigner`.
+
+The conditional-update variant uses the separate
+[`idls/registration_withdraw_update.json`](idls/registration_withdraw_update.json)
+only to test the writable-CPI hypothesis.
 
 The [`build.rs`](programs/pre-req-vault/build.rs) files track the external IDL
 so changes trigger a rebuild.
@@ -219,4 +231,4 @@ Conditional-update variant:
 
 - [`programs/pre-req-vault-withdraw-update-registration/src/lib.rs`](programs/pre-req-vault-withdraw-update-registration/src/lib.rs): separate demonstration program entry point.
 - [`programs/pre-req-vault-withdraw-update-registration/src/instructions/withdraw.rs`](programs/pre-req-vault-withdraw-update-registration/src/instructions/withdraw.rs): conditional Registration `update` implementation.
-- [`tests/pre-req-vault-withdraw-update-registration.ts`](tests/pre-req-vault-withdraw-update-registration.ts): tests proving the conditional CPI is invoked but does not persist the username.
+- [`tests/pre-req-vault-withdraw-update-registration.ts`](tests/pre-req-vault-withdraw-update-registration.ts): tests exercising whether the conditional CPI persists the username when the account is sent as writable.
