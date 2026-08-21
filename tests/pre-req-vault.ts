@@ -179,8 +179,8 @@ describe("pre-req-vault", () => {
     expect(finalBalanceUser).to.be.greaterThan(intialUserBalance);
   });
 
-  it("Withdraws again and updates the registration account", async () => {
-    const withdrawAmount = 0.5 * LAMPORTS_PER_SOL;
+  it("Withdraws again without attempting the unsupported registration update", async () => {
+    const withdrawAmount = 0.25 * LAMPORTS_PER_SOL;
 
     const initialVaultBalance = await provider.connection.getBalance(vaultPda);
     const initialUserBalance = await provider.connection.getBalance(user);
@@ -201,11 +201,70 @@ describe("pre-req-vault", () => {
 
     const finalVaultBalance = await provider.connection.getBalance(vaultPda);
     const finalUserBalance = await provider.connection.getBalance(user);
+    const transaction = await provider.connection.getTransaction(tx, {
+      commitment: COMMITMENT,
+      maxSupportedTransactionVersion: 0,
+    });
 
     expect(finalVaultBalance).to.equal(initialVaultBalance - withdrawAmount);
     expect(finalUserBalance).to.be.greaterThan(initialUserBalance);
-    expect(await provider.connection.getAccountInfo(applicationAccount)).to.not
-      .be.null;
+    expect(transaction).to.not.equal(null);
+
+    const registrationWasInvoked = (transaction?.meta?.logMessages ?? []).some(
+      (log) =>
+        log.includes(`Program ${REGISTRATION_PROGRAM_ID.toBase58()} invoke`)
+    );
+    expect(registrationWasInvoked).to.equal(false);
+
+    const applicationInfo = await provider.connection.getAccountInfo(
+      applicationAccount
+    );
+    expect(applicationInfo).to.not.be.null;
+
+    // ApplicationAccount layout:
+    // discriminator (8) + user (32) + bump (1) + pre-req flags (2) + github string.
+    const githubLength = applicationInfo!.data.readUInt32LE(43);
+    const storedGithub = applicationInfo!.data
+      .subarray(47, 47 + githubLength)
+      .toString("utf8");
+
+    expect(storedGithub).to.equal(GITHUB_USERNAME);
+  });
+
+  it("Skips the Registration CPI on a repeated withdrawal", async () => {
+    const withdrawAmount = 0.25 * LAMPORTS_PER_SOL;
+
+    const initialVaultBalance = await provider.connection.getBalance(vaultPda);
+
+    const tx = await program.methods
+      .withdraw(new BN(withdrawAmount), UPDATED_GITHUB_USERNAME)
+      .accountsStrict({
+        user,
+        vaultState: vaultStatePda,
+        vault: vaultPda,
+        applicationAccount,
+        applicationProgram,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    await confirmTx(tx);
+
+    const transaction = await provider.connection.getTransaction(tx, {
+      commitment: COMMITMENT,
+      maxSupportedTransactionVersion: 0,
+    });
+    expect(transaction).to.not.equal(null);
+
+    const registrationWasInvoked = (transaction?.meta?.logMessages ?? []).some(
+      (log) =>
+        log.includes(`Program ${REGISTRATION_PROGRAM_ID.toBase58()} invoke`)
+    );
+
+    expect(registrationWasInvoked).to.equal(false);
+    expect(await provider.connection.getBalance(vaultPda)).to.equal(
+      initialVaultBalance - withdrawAmount
+    );
   });
 
   it(" Close the vault and withdraw all the funds", async () => {

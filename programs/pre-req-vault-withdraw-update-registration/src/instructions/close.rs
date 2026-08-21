@@ -18,18 +18,18 @@ pub struct Close<'info> {
     pub user: Signer<'info>,
 
     #[account(
-    mut,
-    seeds = [VAULT_SEED, vault_state.key().as_ref()],
-    bump = vault_state.vault_bump,
-  )]
+        mut,
+        seeds = [VAULT_SEED, vault_state.key().as_ref()],
+        bump = vault_state.vault_bump,
+    )]
     pub vault: SystemAccount<'info>,
 
     #[account(
-    mut,
-    seeds = [STATE_SEED, user.key().as_ref()],
-    bump = vault_state.state_bump,
-    close = user,
-  )]
+        mut,
+        seeds = [STATE_SEED, user.key().as_ref()],
+        bump = vault_state.state_bump,
+        close = user,
+    )]
     pub vault_state: Account<'info, VaultState>,
 
     /// CHECK: validated as the Registration Program PDA. The CPI is called only
@@ -38,13 +38,13 @@ pub struct Close<'info> {
         mut,
         seeds = [APPLICATION_SEED, user.key().as_ref()],
         seeds::program = application_program.key(),
-        bump
+        bump,
     )]
     pub application_account: UncheckedAccount<'info>,
 
     pub application_program: Program<'info, Q3PreReqsRs>,
 
-    system_program: Program<'info, System>,
+    pub system_program: Program<'info, System>,
 }
 
 impl<'info> Close<'info> {

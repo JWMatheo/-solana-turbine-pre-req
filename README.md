@@ -1,98 +1,167 @@
 # Pre-Req Vault
 
-An Anchor vault program on Solana. Users can initialize a personal vault, deposit SOL, withdraw SOL while registering their GitHub username in an external Registration Program, and close the vault.
+This repository contains two versions of the same Anchor vault architecture.
+The distinction is intentional: one version is the reliable implementation,
+and the other preserves an experimental conditional CPI so the Registration
+Program limitation is visible in code and tests.
 
-## Improvements delivered
+## Start here: the two vault programs
 
-This iteration focuses on making the vault lifecycle complete, safer, observable, and reliable to test. The most important improvements are:
+### `pre-req-vault` — stable implementation
 
-| Improvement                 | What changed                                                                                                                       | Value                                                                      |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Complete PDA cleanup        | `close` performs a CPI to the Registration Program to close the external `ApplicationAccount` PDA.                                 | Closing the vault no longer leaves Registration Program state behind.      |
-| Multiple withdrawals        | The first `withdraw` calls `registration.initialize`; later withdrawals call `registration.update` only when the username changes. | Users can withdraw more than once without sending redundant CPIs.          |
-| Correct CPI mutability      | The Registration IDL marks `update.account` as writable.                                                                           | The external update CPI can modify the registration account correctly.     |
-| Input validation and errors | Added checks for positive amounts, available funds, and valid GitHub usernames, with explicit `ErrorCode` variants.                | Invalid requests fail before SOL transfers or CPIs occur.                  |
-| Real constant usage         | PDA seed bytes and the GitHub username limit are centralized in [`constants.rs`](programs/pre-req-vault/src/constants.rs).         | PDA derivation and validation rules remain consistent across instructions. |
-| Lifecycle events            | Added `VaultInitialized`, `Deposited`, `Withdrawn`, and `VaultClosed`.                                                             | Clients and indexers can observe the complete vault lifecycle.             |
-| Reliable TypeScript tests   | Every transaction is awaited through `confirmTx` before balances or account state are read.                                        | Assertions do not race the validator or RPC and read stale state.          |
+This is the version to use and present as the working vault program.
 
-The Registration IDL is loaded by [`external_programs.rs`](programs/pre-req-vault/src/external_programs.rs), and [`build.rs`](programs/pre-req-vault/build.rs) tracks changes to [`idls/registration.json`](idls/registration.json).
+On `withdraw` it:
 
-## Program IDs
+1. Transfers SOL from the vault PDA to the user.
+2. Calls `registration.initialize(github)` only when the external
+   `ApplicationAccount` does not exist yet.
+3. Does not call `registration.update` for later withdrawals.
 
-- Vault program: `5BrvmKW8LxW5VJ5gfJtrjPp6rYT8weM9uGwjNNH3B1ja`
-- Registration Program: `TRBZyQHB3m68FGeVsqTK39Wm4xejadjVhP5MAZaKWDM`
-- Cluster used for testing: Solana Devnet
+The last point is deliberate. The deployed Registration Program exposes an
+`update` instruction whose `account` is not writable in its deployed IDL.
+Calling that CPI succeeds, but the
+external `ApplicationAccount.github` value remains unchanged. The stable vault
+therefore does not rely on an update that cannot persist state.
+
+The deployed stable program is:
+
+```text
+5BrvmKW8LxW5VJ5gfJtrjPp6rYT8weM9uGwjNNH3B1ja
+```
+
+### `pre-req-vault-withdraw-update-registration` — conditional-update variant
+
+This program preserves the current conditional implementation as a separate
+demonstration. Its `withdraw` instruction:
+
+1. Reads the external `ApplicationAccount` when it already exists.
+2. Calls `registration.initialize` for a new account.
+3. Calls `registration.update` only when the requested GitHub username differs
+   from the stored value.
+
+This is a useful implementation pattern when the external account is writable.
+With the Registration Program deployed for this task, however, the account is
+read-only for `update`. The CPI can be invoked, but it cannot update the
+`github` field. This variant makes that limitation explicit; it is not the
+stable implementation.
+
+The variant has its own local program ID, but it is not deployed yet:
+
+```text
+HQD2ACc2xShPK3UbecZNG5PZcWtv6JNkCE2mmyAtsKoY
+```
+
+## Improvements delivered in `pre-req-vault`
+
+The improvements below belong to the stable `pre-req-vault` program. The
+conditional-update variant is kept separately so it does not change the
+working implementation.
+
+| Improvement                   | Implementation                                                                                                                                                    | Value                                                                       |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Complete PDA cleanup          | `close` performs a CPI to the Registration Program to close the external `ApplicationAccount`, forwarding the user as a writable signer, then drains the vault and closes `VaultState`. | All accounts involved in the vault lifecycle are cleaned up.                |
+| Multiple withdrawals          | Later withdrawals transfer SOL without attempting the unsupported Registration `update`.                                                                          | A user can withdraw multiple times without depending on a non-mutating CPI. |
+| Input validation              | Amounts must be positive, withdrawals cannot exceed the vault balance, and GitHub usernames must be valid ASCII values within the configured limit.               | Invalid requests fail before the intended state transition completes.       |
+| Real constants                | PDA seed bytes and the maximum GitHub username length are centralized in [`constants.rs`](programs/pre-req-vault/src/constants.rs).                               | PDA derivation and validation rules stay consistent.                        |
+| Lifecycle events              | `VaultInitialized`, `Deposited`, `Withdrawn`, and `VaultClosed` are emitted.                                                                                      | Clients and indexers can observe the vault lifecycle.                       |
+| Reliable TypeScript tests     | Transaction confirmation is awaited before balances, logs, or account data are asserted.                                                                          | Tests do not race RPC or validator state.                                   |
+| External-program verification | The Registration IDL used for code generation records that `update.account` is not writable.                         | The CPI account mutability assumptions are explicit and match the deployed external program. |
 
 ## Architecture
 
-The vault uses three deterministic accounts:
+Both vault programs use the same account topology:
 
-| Account              | Seeds                    | Owner                | Purpose                                                        |
-| -------------------- | ------------------------ | -------------------- | -------------------------------------------------------------- |
-| `VaultState`         | `["state", user]`        | Vault Program        | Stores the vault and state bumps                               |
-| Vault PDA            | `["vault", vault_state]` | System Program       | Holds the user's SOL                                           |
-| `ApplicationAccount` | `["prereqs", user]`      | Registration Program | Stores the user's registration data, including GitHub username |
+| Account              | Seeds                    | Owner                | Purpose                                                               |
+| -------------------- | ------------------------ | -------------------- | --------------------------------------------------------------------- |
+| `VaultState`         | `["state", user]`        | Vault program        | Stores the vault and state bumps.                                     |
+| Vault PDA            | `["vault", vault_state]` | System Program       | Holds the user's SOL.                                                 |
+| `ApplicationAccount` | `["prereqs", user]`      | Registration Program | Stores the external registration data, including the GitHub username. |
 
-`initialize` creates only `VaultState`. The Vault PDA is derived and validated at that point, but it is created/funded lazily by the first `deposit` through a System Program transfer.
+`initialize` creates only `VaultState`. The vault PDA is derived and validated,
+then receives its first lamports through `deposit`.
 
-## Instruction flow
+## Stable instruction flow
 
 ### `initialize`
 
 - Creates the user's `VaultState` PDA.
 - Stores the vault and state bumps.
 - Emits `VaultInitialized`.
-- Calling `initialize` twice for the same user fails because the `VaultState` PDA already exists.
+- A second call for the same user fails because the PDA already exists.
 
 ### `deposit(amount)`
 
 - Requires an existing `VaultState`.
-- Rejects an amount of zero.
-- Transfers SOL from the user to the Vault PDA through the System Program.
+- Rejects zero.
+- Transfers SOL from the user to the vault PDA through the System Program.
 - Emits `Deposited`.
 
 ### `withdraw(amount, github)`
 
-- Validates that the amount is positive and does not exceed the vault balance.
-- Validates the GitHub username: it must be non-empty, at most 39 characters, and contain only ASCII letters, numbers, or `-`.
-- Transfers SOL from the Vault PDA to the user with PDA signer seeds.
-- Checks whether the `ApplicationAccount` already exists:
-  - If it does not exist, it performs a CPI to `registration.initialize`.
-  - If it exists and is owned by the Registration Program, it decodes the stored username.
-  - If the username changed, it performs a CPI to `registration.update`.
-  - If the username is unchanged, it skips the Registration Program CPI entirely.
-- This allows multiple withdrawals during the same vault lifecycle.
+- Validates the amount and GitHub username.
+- Transfers SOL from the vault PDA to the user using the vault PDA signer seeds.
+- Initializes the external `ApplicationAccount` only on the first withdrawal.
+- Leaves the external username unchanged on later withdrawals because the
+  deployed Registration `update` cannot write that account.
 - Emits `Withdrawn`.
 
 ### `close`
 
-- Requires an existing `VaultState`.
-- Closes the `ApplicationAccount` only when it is owned by the Registration Program and contains data.
-- Transfers the remaining vault lamports to the user when the vault has funds.
-- Closes `VaultState` and returns its rent to the user through Anchor's `close = user` constraint.
+- Closes the external `ApplicationAccount` through the Registration Program
+  when it exists. The CPI forwards `user` as both writable and signer because
+  the Registration Program requires the user to authorize the close.
+- Transfers remaining vault lamports to the user.
+- Closes `VaultState` through Anchor's `close = user` constraint.
 - Emits `VaultClosed`.
 
-The Registration Program CPI is important because the vault program does not own the
-`ApplicationAccount` PDA. Calling the external `close` instruction ensures that this
-second program-owned account is also closed instead of being left on-chain after the
-vault is closed.
+## Why the conditional variant exists
 
-The instruction works in all of these cases:
+The conditional implementation is in
+[`pre-req-vault-withdraw-update-registration`](programs/pre-req-vault-withdraw-update-registration/src/instructions/withdraw.rs).
+It demonstrates the natural design when an external registration account is
+mutable:
 
-- `initialize` without a deposit;
-- `initialize` followed by a deposit but no withdrawal;
-- one or more withdrawals followed by `close`.
+```text
+ApplicationAccount absent   -> registration.initialize(github)
+ApplicationAccount exists   -> compare stored github
+Username changed            -> registration.update(github)
+Username unchanged          -> skip update
+```
 
-## Tests
+For this deployed Registration Program, the downloaded IDL describes
+`update.account` without `writable: true`. The account is therefore not a
+valid writable target for an update. The Devnet test showed that the CPI logs
+`Instruction: Update`, but the stored value remained the old username. The
+stable program intentionally avoids this unsupported branch.
 
-Build the program:
+## External Registration IDL
+
+[`idls/registration.json`](idls/registration.json) is the formatted IDL used
+by Anchor's `declare_program!(registration)` macro. It records the deployed
+Registration Program definition on the relevant fields:
+
+- Program address: `TRBZyQHB3m68FGeVsqTK39Wm4xejadjVhP5MAZaKWDM`.
+- `update` takes a `github: string` argument.
+- `update.account` is not writable.
+- `ApplicationAccount` contains `user`, `bump`, `pre_req_ts`, `pre_req_rs`,
+  and `github`.
+- `close` can close the external application account, and its `user` account
+  must be both writable and a signer. Without `signer: true` in this local IDL,
+  the CPI reaches the Registration Program but fails with `AccountNotSigner`.
+
+The [`build.rs`](programs/pre-req-vault/build.rs) files track the external IDL
+so changes trigger a rebuild.
+
+## Tests and checks
+
+Build both workspace programs:
 
 ```bash
 anchor build
 ```
 
-Run the Devnet integration tests with a funded test wallet:
+Run the stable Devnet integration tests with a funded test wallet:
 
 ```bash
 anchor test \
@@ -102,7 +171,29 @@ anchor test \
   --skip-local-validator
 ```
 
-The TypeScript suite covers initialization, invalid deposits and withdrawals, multiple withdrawals, skipping an unnecessary registration CPI when the username is unchanged, and closing the vault.
+The TypeScript suite covers initialization, invalid deposits and withdrawals,
+multiple withdrawals without an unsupported Registration update, and complete
+closure of the vault and external application account.
+
+The conditional-update tests are kept in a separate suite so the stable test
+does not depend on the experimental program. After deploying the variant with
+its dedicated keypair, run the suite with a fresh test wallet so the
+`ApplicationAccount` starts uninitialized:
+
+```bash
+ANCHOR_WALLET=/path/to/test-wallet.json \
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
+anchor run test_withdraw_update_registration
+```
+
+That suite asserts that the second withdrawal invokes `registration.update`,
+that the stored username remains unchanged, and that a later withdrawal calls
+`update` again because the previous update was not persisted.
+
+The Devnet program `5BrvmKW8LxW5VJ5gfJtrjPp6rYT8weM9uGwjNNH3B1ja` still contains
+the previously deployed binary until it is explicitly upgraded. The stable
+test suite describes the new source behavior, so deploy the stable program
+before running that suite against Devnet.
 
 Additional local checks:
 
@@ -110,13 +201,22 @@ Additional local checks:
 cargo test --workspace
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 pnpm exec tsc --noEmit
+pnpm exec prettier README.md idls/registration.json tests/*.ts --check
 ```
 
 ## Source layout
 
-- [`programs/pre-req-vault/src/lib.rs`](programs/pre-req-vault/src/lib.rs): public instructions and program ID.
-- [`programs/pre-req-vault/src/instructions`](programs/pre-req-vault/src/instructions): instruction account constraints and handlers.
-- [`programs/pre-req-vault/src/state.rs`](programs/pre-req-vault/src/state.rs): on-chain `VaultState` account.
-- [`programs/pre-req-vault/src/events.rs`](programs/pre-req-vault/src/events.rs): emitted lifecycle events.
-- [`programs/pre-req-vault/src/external_programs.rs`](programs/pre-req-vault/src/external_programs.rs): generated Registration Program interface.
-- [`tests/pre-req-vault.ts`](tests/pre-req-vault.ts): Devnet integration tests.
+Stable program:
+
+- [`programs/pre-req-vault/src/lib.rs`](programs/pre-req-vault/src/lib.rs): program ID and public instructions.
+- [`programs/pre-req-vault/src/instructions`](programs/pre-req-vault/src/instructions): account constraints and handlers.
+- [`programs/pre-req-vault/src/state.rs`](programs/pre-req-vault/src/state.rs): persistent `VaultState` schema.
+- [`programs/pre-req-vault/src/events.rs`](programs/pre-req-vault/src/events.rs): lifecycle events.
+- [`programs/pre-req-vault/src/external_programs.rs`](programs/pre-req-vault/src/external_programs.rs): generated Registration interface.
+- [`tests/pre-req-vault.ts`](tests/pre-req-vault.ts): stable Devnet integration tests.
+
+Conditional-update variant:
+
+- [`programs/pre-req-vault-withdraw-update-registration/src/lib.rs`](programs/pre-req-vault-withdraw-update-registration/src/lib.rs): separate demonstration program entry point.
+- [`programs/pre-req-vault-withdraw-update-registration/src/instructions/withdraw.rs`](programs/pre-req-vault-withdraw-update-registration/src/instructions/withdraw.rs): conditional Registration `update` implementation.
+- [`tests/pre-req-vault-withdraw-update-registration.ts`](tests/pre-req-vault-withdraw-update-registration.ts): tests proving the conditional CPI is invoked but does not persist the username.

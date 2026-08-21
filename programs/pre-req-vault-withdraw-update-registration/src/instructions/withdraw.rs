@@ -3,7 +3,11 @@ use crate::{
     error::ErrorCode,
     events::Withdrawn,
     external_programs::registration::{
-        cpi::{accounts::Initialize, initialize},
+        accounts::ApplicationAccount as RegistrationApplicationAccount,
+        cpi::{
+            accounts::{Initialize, Update},
+            initialize, update,
+        },
         program::Q3PreReqsRs,
     },
     state::VaultState,
@@ -19,31 +23,31 @@ pub struct Withdraw<'info> {
     pub user: Signer<'info>,
 
     #[account(
-    mut,
-    seeds = [VAULT_SEED, vault_state.key().as_ref()],
-    bump = vault_state.vault_bump,
-  )]
+        mut,
+        seeds = [VAULT_SEED, vault_state.key().as_ref()],
+        bump = vault_state.vault_bump,
+    )]
     pub vault: SystemAccount<'info>,
 
     #[account(
-    mut,
-    seeds = [STATE_SEED, user.key().as_ref()],
-    bump = vault_state.state_bump
-  )]
+        mut,
+        seeds = [STATE_SEED, user.key().as_ref()],
+        bump = vault_state.state_bump,
+    )]
     pub vault_state: Account<'info, VaultState>,
 
     /// CHECK: validated as the Registration Program PDA before decoding or invoking a CPI.
     #[account(
-    mut,
-    seeds = [APPLICATION_SEED, user.key().as_ref()],
-    seeds::program = application_program.key(),
-    bump
+        mut,
+        seeds = [APPLICATION_SEED, user.key().as_ref()],
+        seeds::program = application_program.key(),
+        bump,
     )]
     pub application_account: UncheckedAccount<'info>,
 
     pub application_program: Program<'info, Q3PreReqsRs>,
 
-    system_program: Program<'info, System>,
+    pub system_program: Program<'info, System>,
 }
 
 impl<'info> Withdraw<'info> {
@@ -69,6 +73,17 @@ impl<'info> Withdraw<'info> {
         let application_account = self.application_account.to_account_info();
         let application_exists = application_account.owner == &application_program_id
             && !application_account.data_is_empty();
+        let should_update = if application_exists {
+            let application_state = {
+                let data = application_account.try_borrow_data()?;
+                let mut data: &[u8] = &data;
+                RegistrationApplicationAccount::try_deserialize(&mut data)?
+            };
+
+            application_state.github.as_str() != github.as_str()
+        } else {
+            false
+        };
 
         let cpi_accounts = Transfer {
             from: self.vault.to_account_info(),
@@ -89,8 +104,6 @@ impl<'info> Withdraw<'info> {
 
         let github_for_event = github.clone();
 
-        // The deployed Registration Program does not expose its application
-        // account as writable for `update`, so later withdrawals leave it unchanged.
         if !application_exists {
             let registration_accounts = Initialize {
                 user: self.user.to_account_info(),
@@ -102,6 +115,17 @@ impl<'info> Withdraw<'info> {
                 CpiContext::new(self.application_program.key(), registration_accounts);
 
             initialize(registration_ctx, github)?;
+        } else if should_update {
+            let registration_accounts = Update {
+                user: self.user.to_account_info(),
+                account: application_account.clone(),
+                system_program: self.system_program.to_account_info(),
+            };
+
+            let registration_ctx =
+                CpiContext::new(self.application_program.key(), registration_accounts);
+
+            update(registration_ctx, github)?;
         }
 
         emit!(Withdrawn {

@@ -1939,6 +1939,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pre-req-vault-withdraw-update-registration"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+]
+
+[[package]]
 name = "proc-macro-crate"
 version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

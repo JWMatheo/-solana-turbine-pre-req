@@ -8,13 +8,15 @@ skip-lint = false
 
 [programs.devnet]
 pre_req_vault = "5BrvmKW8LxW5VJ5gfJtrjPp6rYT8weM9uGwjNNH3B1ja"
+pre_req_vault_withdraw_update_registration = "HQD2ACc2xShPK3UbecZNG5PZcWtv6JNkCE2mmyAtsKoY"
 
 [provider]
 cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "pnpm exec ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
+test = "pnpm exec ts-mocha -p ./tsconfig.json -t 1000000 \"tests/pre-req-vault.ts\""
+test_withdraw_update_registration = "pnpm exec ts-mocha -p ./tsconfig.json -t 1000000 \"tests/pre-req-vault-withdraw-update-registration.ts\""
 testsvm = "cargo test"
 
 [hooks]
