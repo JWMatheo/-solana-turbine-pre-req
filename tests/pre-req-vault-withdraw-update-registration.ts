@@ -163,8 +163,9 @@ describe("pre-req-vault-withdraw-update-registration", () => {
     expect(transaction).to.not.equal(null);
     expect(hasRegistrationInstruction(transaction, "Update")).to.equal(true);
 
-    // The CPI succeeds, but the external account remains unchanged because
-    // Registration::update receives a non-writable ApplicationAccount.
+    // This variant deliberately sends ApplicationAccount as writable. If the
+    // value still remains unchanged, the missing persistence is inside the
+    // deployed Registration Program rather than in our CPI account metadata.
     expect(
       await readStoredGithub(provider.connection, applicationAccount)
     ).to.equal(GITHUB_USERNAME);

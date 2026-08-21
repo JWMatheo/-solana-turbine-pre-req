@@ -1,7 +1,7 @@
 use crate::{
     constants::{APPLICATION_SEED, STATE_SEED, VAULT_SEED},
     events::VaultClosed,
-    external_programs::registration::{
+    external_programs::registration_withdraw_update::{
         cpi::{accounts::Close as RegistrationCloseAccounts, close as close_registration_account},
         program::Q3PreReqsRs,
     },

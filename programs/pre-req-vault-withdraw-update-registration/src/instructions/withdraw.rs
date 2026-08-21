@@ -2,7 +2,7 @@ use crate::{
     constants::{APPLICATION_SEED, MAX_GITHUB_USERNAME_LENGTH, STATE_SEED, VAULT_SEED},
     error::ErrorCode,
     events::Withdrawn,
-    external_programs::registration::{
+    external_programs::registration_withdraw_update::{
         accounts::ApplicationAccount as RegistrationApplicationAccount,
         cpi::{
             accounts::{Initialize, Update},
