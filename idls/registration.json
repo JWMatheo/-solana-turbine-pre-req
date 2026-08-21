@@ -366,6 +366,7 @@
         },
         {
           "name": "account",
+          "writable": true,
           "pda": {
             "seeds": [
               {

@@ -10,6 +10,4 @@ pub enum ErrorCode {
     InvalidGithubUsername,
     #[msg("The GitHub username is too long")]
     GithubUsernameTooLong,
-    #[msg("The vault can only be closed after a withdrawal")]
-    WithdrawalRequiredBeforeClose,
 }

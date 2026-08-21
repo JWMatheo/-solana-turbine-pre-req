@@ -1,5 +1,6 @@
 use crate::{
     constants::{STATE_SEED, VAULT_SEED},
+    events::VaultInitialized,
     state::VaultState,
 };
 use anchor_lang::prelude::*;
@@ -32,7 +33,12 @@ impl<'info> Initialize<'info> {
         // Save data to state
         self.vault_state.vault_bump = bumps.vault;
         self.vault_state.state_bump = bumps.vault_state;
-        self.vault_state.has_withdrawn = false;
+
+        emit!(VaultInitialized {
+            user: self.user.key(),
+            vault_state: self.vault_state.key(),
+            vault: self.vault.key(),
+        });
 
         Ok(())
     }

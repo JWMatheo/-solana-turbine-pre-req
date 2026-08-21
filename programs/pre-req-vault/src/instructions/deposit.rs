@@ -1,6 +1,7 @@
 use crate::{
     constants::{STATE_SEED, VAULT_SEED},
     error::ErrorCode,
+    events::Deposited,
     state::VaultState,
 };
 use anchor_lang::{
@@ -41,6 +42,12 @@ impl<'info> Deposit<'info> {
         let cpi_ctx = CpiContext::new(System::id(), cpi_accounts);
 
         transfer(cpi_ctx, amount)?;
+
+        emit!(Deposited {
+            user: self.user.key(),
+            vault: self.vault.key(),
+            amount,
+        });
 
         Ok(())
     }

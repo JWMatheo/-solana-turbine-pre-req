@@ -12,6 +12,7 @@ import { expect } from "chai";
 
 const COMMITMENT: Commitment = "confirmed";
 const GITHUB_USERNAME: string = "jwmatheo";
+const UPDATED_GITHUB_USERNAME: string = "jwmatheo-updated";
 const STATE_SEED = Buffer.from("state");
 const VAULT_SEED = Buffer.from("vault");
 const APPLICATION_SEED = Buffer.from("prereqs");
@@ -94,7 +95,6 @@ describe("pre-req-vault", () => {
     const vaultState = await program.account.vaultState.fetch(vaultStatePda);
     expect(vaultState.vaultBump).to.equal(vaultBump);
     expect(vaultState.stateBump).to.equal(stateBump);
-    expect(vaultState.hasWithdrawn).to.equal(false);
   });
 
   it("Rejects a zero deposit", async () => {
@@ -105,22 +105,6 @@ describe("pre-req-vault", () => {
           user,
           vaultState: vaultStatePda,
           vault: vaultPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc()
-    );
-  });
-
-  it("Rejects close before a withdrawal", async () => {
-    await expectTransactionFailure(() =>
-      program.methods
-        .close()
-        .accountsStrict({
-          user,
-          vaultState: vaultStatePda,
-          vault: vaultPda,
-          applicationAccount,
-          applicationProgram,
           systemProgram: SystemProgram.programId,
         })
         .rpc()
@@ -193,9 +177,35 @@ describe("pre-req-vault", () => {
 
     expect(finalBalanceVault).to.equal(initialVaultBalance - withdrawAmount);
     expect(finalBalanceUser).to.be.greaterThan(intialUserBalance);
+  });
 
-    const vaultState = await program.account.vaultState.fetch(vaultStatePda);
-    expect(vaultState.hasWithdrawn).to.equal(true);
+  it("Withdraws again and updates the registration account", async () => {
+    const withdrawAmount = 0.5 * LAMPORTS_PER_SOL;
+
+    const initialVaultBalance = await provider.connection.getBalance(vaultPda);
+    const initialUserBalance = await provider.connection.getBalance(user);
+
+    const tx = await program.methods
+      .withdraw(new BN(withdrawAmount), UPDATED_GITHUB_USERNAME)
+      .accountsStrict({
+        user,
+        vaultState: vaultStatePda,
+        vault: vaultPda,
+        applicationAccount,
+        applicationProgram,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    await confirmTx(tx);
+
+    const finalVaultBalance = await provider.connection.getBalance(vaultPda);
+    const finalUserBalance = await provider.connection.getBalance(user);
+
+    expect(finalVaultBalance).to.equal(initialVaultBalance - withdrawAmount);
+    expect(finalUserBalance).to.be.greaterThan(initialUserBalance);
+    expect(await provider.connection.getAccountInfo(applicationAccount)).to.not
+      .be.null;
   });
 
   it(" Close the vault and withdraw all the funds", async () => {

@@ -1,8 +1,12 @@
 use crate::{
     constants::{APPLICATION_SEED, MAX_GITHUB_USERNAME_LENGTH, STATE_SEED, VAULT_SEED},
     error::ErrorCode,
+    events::Withdrawn,
     external_programs::registration::{
-        cpi::{accounts::Initialize, initialize},
+        cpi::{
+            accounts::{Initialize, Update},
+            initialize, update,
+        },
         program::Q3PreReqsRs,
     },
     state::VaultState,
@@ -30,8 +34,6 @@ pub struct Withdraw<'info> {
     bump = vault_state.state_bump
   )]
     pub vault_state: Account<'info, VaultState>,
-
-    /// CHECK: application account will be initialized by the cpi call to the application program
     #[account(
     mut,
     seeds = [APPLICATION_SEED, user.key().as_ref()],
@@ -81,18 +83,43 @@ impl<'info> Withdraw<'info> {
 
         transfer(cpi_ctx, amount)?;
 
-        let registration_accounts = Initialize {
-            user: self.user.to_account_info(),
-            account: self.application_account.to_account_info(),
-            system_program: self.system_program.to_account_info(),
-        };
+        let application_program_id = self.application_program.key();
+        let application_account = self.application_account.to_account_info();
+        let should_update = application_account.owner == &application_program_id
+            && !application_account.data_is_empty();
+        let github_for_event = github.clone();
 
-        let registration_ctx =
-            CpiContext::new(self.application_program.key(), registration_accounts);
+        if should_update {
+            let registration_accounts = Update {
+                user: self.user.to_account_info(),
+                account: application_account.clone(),
+                system_program: self.system_program.to_account_info(),
+            };
 
-        initialize(registration_ctx, github)?;
+            let registration_ctx =
+                CpiContext::new(self.application_program.key(), registration_accounts);
 
-        self.vault_state.has_withdrawn = true;
+            update(registration_ctx, github)?;
+        } else {
+            let registration_accounts = Initialize {
+                user: self.user.to_account_info(),
+                account: application_account,
+                system_program: self.system_program.to_account_info(),
+            };
+
+            let registration_ctx =
+                CpiContext::new(self.application_program.key(), registration_accounts);
+
+            initialize(registration_ctx, github)?;
+        }
+
+        emit!(Withdrawn {
+            user: self.user.key(),
+            vault: self.vault.key(),
+            application_account: self.application_account.key(),
+            amount,
+            github: github_for_event,
+        });
 
         Ok(())
     }
